@@ -98,15 +98,21 @@ describe("Git read probes do not execute repository helpers", () => {
     const beforeStatus = git("status", "--porcelain").toString()
     const beforeHead = git("rev-parse", "HEAD").toString()
     const gitRun = vi.spyOn(gitProcess, "gitRun")
-    const result = await diffRange(root, parent, candidate)
-    const invokedCommands = gitRun.mock.calls.map(([, args]) => args)
-    gitRun.mockRestore()
+    let result: Awaited<ReturnType<typeof diffRange>>
+    let invokedCommands: string[]
+    try {
+      result = await diffRange(root, parent, candidate)
+      invokedCommands = gitRun.mock.calls.map(([, args]) => args[0] ?? "")
+    } finally {
+      gitRun.mockRestore()
+    }
     expect(result.diff).toContain("-original")
     expect(result.diff).toContain("+changed")
     expect(invokedCommands).toHaveLength(1)
-    expect(invokedCommands.flat()).not.toEqual(
-      expect.arrayContaining(["add", "apply", "commit"])
-    )
+    expect(invokedCommands).toEqual(["diff"])
+    for (const forbiddenCommand of ["add", "apply", "commit"]) {
+      expect(invokedCommands).not.toContain(forbiddenCommand)
+    }
     expect(git("status", "--porcelain").toString()).toBe(beforeStatus)
     expect(git("rev-parse", "HEAD").toString()).toBe(beforeHead)
   })
