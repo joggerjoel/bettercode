@@ -30,7 +30,7 @@ async function fixture(socketPath?: string) {
   const api = new Hono()
   api.onError((error) => Response.json({ error: error.message }, { status: error instanceof HttpError ? error.statusCode : 500 }))
   registerHerdrRoutes(api, { herdrViewerPort: address.port, herdrSocketPath: socketPath })
-  const request = (resource: string, relative = "") => api.request(`/herdr/u1/${resource}?${new URLSearchParams({ tree: document.tree, path: relative })}`)
+  const request = (resource: string, relative = "") => api.request(`/herdr/u1/${resource}?${new URLSearchParams({ tree: document.tree, path: relative, ...(document.base_sha === null ? {} : { base_sha: document.base_sha }), ...(document.candidate_commit === null ? {} : { candidate_commit: document.candidate_commit }) })}`)
   return { api, request, tree, document }
 }
 describe("Herdr read transport", () => {
@@ -57,6 +57,16 @@ describe("Herdr read transport", () => {
     document.candidate_commit = "a".repeat(40)
     expect(await (await request("diff")).json()).toEqual({ kind: "none" })
   })
+  it.each(["candidate_commit", "base_sha"] as const)("rejects same-tree %s drift before Git", async (revision) => {
+    const { api, tree, document } = await fixture()
+    document.base_sha = "a".repeat(40)
+    document.candidate_commit = "b".repeat(40)
+    const displayed = { tree, base_sha: document.base_sha, candidate_commit: document.candidate_commit }
+    document[revision] = "c".repeat(40)
+    const response = await api.request(`/herdr/u1/diff?${new URLSearchParams(displayed)}`)
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ error: "The selected review changed. Refresh the unit." })
+  })
   it("re-fetches authoritative tree and rejects a stale selection", async () => {
     const { api, request, document, tree } = await fixture()
     expect((await request("editor")).status).toBe(200)
@@ -66,7 +76,7 @@ describe("Herdr read transport", () => {
     expect((await request("editor")).status).toBe(403)
   })
   it("reads the pinned revision diff without changing repository status", async () => {
-    const { request, tree, document } = await fixture()
+    const { api, request, tree, document } = await fixture()
     const git = (...args: string[]) => execFileSync("git", args, { cwd: tree, encoding: "utf8" }).trim()
     git("init", "-q")
     git("add", "review.ts")
@@ -80,6 +90,13 @@ describe("Herdr read transport", () => {
     const before = git("status", "--porcelain")
     expect(await (await request("diff")).json()).toMatchObject({ kind: "diff", truncated: false, diff: expect.stringContaining("+const result = true") })
     expect(git("status", "--porcelain")).toBe(before)
+    const displayed = { tree, base_sha: document.base_sha, candidate_commit: document.candidate_commit }
+    git("add", "review.ts")
+    git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "next candidate")
+    document.candidate_commit = git("rev-parse", "HEAD")
+    const stale = await api.request(`/herdr/u1/diff?${new URLSearchParams(displayed)}`)
+    expect(stale.status).toBe(409)
+    expect(await stale.text()).not.toContain("uncommitted")
   })
 })
 

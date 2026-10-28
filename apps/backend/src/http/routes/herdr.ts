@@ -34,6 +34,7 @@ export function registerHerdrRoutes(api: Hono, config: Pick<ServerConfig, "herdr
     if (resource === "editor") return c.json(document)
     if (c.req.query("tree") !== document.tree) throw new HttpError(409, "The selected workspace changed. Refresh the unit.")
     if (resource === "diff") {
+      if ((c.req.query("base_sha") ?? null) !== document.base_sha || (c.req.query("candidate_commit") ?? null) !== document.candidate_commit) throw new HttpError(409, "The selected review changed. Refresh the unit.")
       if (document.base_sha === null || document.candidate_commit === null) return c.json({ kind: "none" })
       return c.json({ kind: "diff", ...await diffRange(root, document.base_sha, document.candidate_commit) })
     }
