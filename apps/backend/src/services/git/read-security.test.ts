@@ -3,11 +3,13 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { diff } from "./diff"
+import { diff, diffRange } from "./diff"
 import { invalidateStatusCache, status } from "./status"
 
 describe("Git read probes do not execute repository helpers", () => {
   let root: string
+  let parent: string
+  let head: string
   const git = (...args: string[]) =>
     execFileSync("git", args, {
       cwd: root,
@@ -31,7 +33,19 @@ describe("Git read probes do not execute repository helpers", () => {
       "-m",
       "initial"
     )
+    parent = git("rev-parse", "HEAD").toString().trim()
     fs.writeFileSync(path.join(root, "note.txt"), "changed\n")
+    git("add", "note.txt")
+    git(
+      "-c",
+      "core.hooksPath=",
+      "-c",
+      "commit.gpgSign=false",
+      "commit",
+      "-m",
+      "candidate"
+    )
+    head = git("rev-parse", "HEAD").toString().trim()
     fs.writeFileSync(
       path.join(root, ".git", "probe.sh"),
       "#!/bin/sh\nprintf probe >> .git/executed\ncat\n",
@@ -78,6 +92,24 @@ describe("Git read probes do not execute repository helpers", () => {
       }
       await diff(root)
       expect(fs.existsSync(path.join(root, ".git", "executed"))).toBe(false)
+    }
+  )
+  it("diffs two commit hashes without changing repository state", async () => {
+    const beforeStatus = git("status", "--porcelain").toString()
+    const beforeHead = git("rev-parse", "HEAD").toString()
+    const result = await diffRange(root, parent, head)
+    expect(result.diff).toContain("-original")
+    expect(result.diff).toContain("+changed")
+    expect(git("status", "--porcelain").toString()).toBe(beforeStatus)
+    expect(git("rev-parse", "HEAD").toString()).toBe(beforeHead)
+  })
+  it.each(["HEAD", "a".repeat(41), "a".repeat(63), "A".repeat(40)])(
+    "rejects invalid revision %s",
+    async (revision) => {
+      await expect(diffRange(root, revision, head)).rejects.toMatchObject({
+        statusCode: 400,
+        code: "git_revision_invalid",
+      })
     }
   )
 })

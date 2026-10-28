@@ -3,6 +3,7 @@
  */
 
 import { createHash } from "node:crypto"
+import { HttpError } from "../../errors"
 import { gitRun } from "./process"
 import { invalidateStatusCache } from "./status"
 
@@ -167,6 +168,22 @@ export function boundDisplayDiff(raw: string): DisplayDiffResult {
 
 export async function diff(cwd: string): Promise<DisplayDiffResult> {
   const { stdout } = await gitRun(cwd, ["diff", ...TEXT_DIFF_ARGS])
+  return boundDisplayDiff(stdout)
+}
+export async function diffRange(
+  cwd: string,
+  base: string,
+  candidate: string,
+): Promise<DisplayDiffResult> {
+  const revisionPattern = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/
+  if (!revisionPattern.test(base) || !revisionPattern.test(candidate)) {
+    throw new HttpError(
+      400,
+      "Git revisions must be lowercase commit hashes.",
+      "git_revision_invalid",
+    )
+  }
+  const { stdout } = await gitRun(cwd, ["diff", base, candidate, ...TEXT_DIFF_ARGS])
   return boundDisplayDiff(stdout)
 }
 
