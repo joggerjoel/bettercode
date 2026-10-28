@@ -11,6 +11,8 @@ import { parseAllowedOrigins } from "./security/origin"
  * write the same SQLite file.
  */
 export interface ServerConfig {
+  /** Trusted process launch configuration; never supplied by the renderer. */
+  herdrViewerPort?: number
   /** HTTP/WS host. Loopback unless the user explicitly enables remote access. */
   host: string
   /** Preferred port; fallbacks are host:port+1, host:port+2, then 0 (any). */
@@ -98,6 +100,7 @@ export function createServerConfig(
   return {
     host: options.host ?? "127.0.0.1",
     port,
+    herdrViewerPort: process.env.BETTERC0DE_HERDR_VIEWER_PORT ? Number(process.env.BETTERC0DE_HERDR_VIEWER_PORT) : undefined,
     dataDir,
     dbPath: path.join(dataDir, "betterc0de.db"),
     settingsPath: path.join(dataDir, "settings.json"),

@@ -1,0 +1,30 @@
+import { useEffect, useState } from "react"
+import type { z } from "zod"
+
+type Resource<T> = { kind: "loading" } | { kind: "error"; message: string } | { kind: "ready"; value: T }
+export function useReadResource<T>(url: string, schema: z.ZodType<T>): Resource<T> {
+  const [result, setResult] = useState<{ url: string; state: Resource<T> }>({ url, state: { kind: "loading" } })
+  useEffect(() => {
+    const controller = new AbortController()
+    setResult({ url, state: { kind: "loading" } })
+    void (async () => {
+      try {
+        const response = await fetch(url, { signal: controller.signal, redirect: "error" })
+        if (!response.ok) throw new Error(response.status === 409 ? "The selected workspace changed. Refresh the unit." : `Unable to load review data (${response.status}).`)
+        const raw: unknown = await response.json()
+        const value = schema.parse(raw)
+        if (!controller.signal.aborted) setResult({ url, state: { kind: "ready", value } })
+      } catch (error) {
+        if (!controller.signal.aborted) setResult({ url, state: { kind: "error", message: error instanceof Error ? error.message : "Unable to load review data." } })
+      }
+    })()
+    return () => controller.abort()
+  }, [url, schema])
+  return result.url === url ? result.state : { kind: "loading" }
+}
+export function unitResource(unitId: string, resource: string, tree?: string, path?: string): string {
+  const query = new URLSearchParams()
+  if (tree !== undefined) query.set("tree", tree)
+  if (path !== undefined) query.set("path", path)
+  return `/api/v1/herdr/${encodeURIComponent(unitId)}/${resource}?${query}`
+}

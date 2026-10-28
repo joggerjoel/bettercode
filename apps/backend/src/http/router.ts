@@ -12,6 +12,7 @@ import {
 } from "../observability/metrics";
 import { isAllowedBrowserOrigin } from "../security/origin";
 import { constantTimeEqual } from "../security/token";
+import { registerHerdrRoutes } from "./routes/herdr";
 import { registerHealthRoute, registerRuntimeRoutes } from "./routes/runtime";
 import { registerSettingsRoutes } from "./routes/settings";
 import { registerThemesRoutes } from "./routes/themes";
@@ -92,6 +93,7 @@ function buildApiRoutes(state: AppState, config: ServerConfig): Hono {
     }),
   );
   registerRemoteRoutes(api, config, state);
+  registerHerdrRoutes(api, config);
   registerRuntimeRoutes(api, state);
   registerSettingsRoutes(api, state);
   registerThemesRoutes(api, config);

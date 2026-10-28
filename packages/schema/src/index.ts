@@ -28,3 +28,5 @@ export * from "./vscode-theme"
 export * from "./model-capabilities"
 export * from "./provider-handoff"
 export * from "./orchestrator"
+
+export * from "./herdr"

@@ -79,3 +79,6 @@ playwright-report/
 *.keystore
 *.jks
 credentials.json
+
+# Standalone Herdr review build
+apps/ui/dist-herdr/

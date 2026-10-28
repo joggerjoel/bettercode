@@ -4,7 +4,7 @@ import type { AppState } from "../../appState"
 import { HttpError } from "../../errors"
 import { isScratchWorkspacePath } from "../scratchWorkspace"
 
-type WorkspaceRegistryState = Pick<AppState, "db" | "config" | "projectProjections" | "threads" | "worktreeRegistry">
+type WorkspaceRegistryState = Partial<Pick<AppState, "db" | "config" | "projectProjections" | "threads" | "worktreeRegistry">>
 interface RootRegistry {
   revision: number | null
   roots: Promise<Map<string, string[]>>
@@ -164,4 +164,12 @@ export async function resolveChatWorkspaceRoot(
 
 function canonicalWorkspaceKey(value: string): string {
   return process.platform === "win32" ? value.toLowerCase() : value
+}
+
+/** Request-local registration never grants tools or global workspace access. */
+export async function resolveReadOnlyWorkspaceRoot(tree: string): Promise<string> {
+  if (!path.isAbsolute(tree)) throw new HttpError(403, "Workspace is not registered.", "workspace_not_registered")
+  const scope: WorkspaceRegistryState = {}
+  openedRoots.set(scope, new Set([tree]))
+  return resolveApprovedWorkspaceRoot(scope, tree)
 }
