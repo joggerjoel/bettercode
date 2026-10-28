@@ -4,6 +4,7 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { createRequire } from "node:module"
 import { createServer } from "vite"
+import { herdrSeatProxy } from "./herdr-seat-proxy.mjs"
 
 const viewerPort = Number(process.env.BETTERC0DE_HERDR_VIEWER_PORT)
 if (!Number.isInteger(viewerPort) || viewerPort < 1 || viewerPort > 65535) {
@@ -28,20 +29,7 @@ try {
   backend = await startNodeBackend({ dataDir, preferredPort: 0 })
   server = await createServer({
     configFile: path.join(root, "apps/ui/vite.herdr.config.ts"),
-    plugins: [{ name: "herdr-read-only-proxy", configureServer(server) {
-      server.middlewares.use((request, response, next) => {
-    if (request.url?.startsWith("/api/") && (request.method !== "GET" || !request.url.startsWith("/api/v1/herdr/"))) {
-      response.statusCode = 405
-      response.end("Read-only review seat")
-      return
-    }
-    next()
-  })
-    } }],
-    server: { host: "127.0.0.1", port: 0, proxy: {
-      // Only the review GET surface is proxied. The token never reaches the renderer.
-      "^/api/v1/herdr/": { target: `http://127.0.0.1:${backend.port}`, headers: { Authorization: `Bearer ${backend.token}` } },
-    } },
+    ...herdrSeatProxy({ port: backend.port, token: backend.token }),
   })
   await server.listen()
   const address = server.httpServer?.address()
