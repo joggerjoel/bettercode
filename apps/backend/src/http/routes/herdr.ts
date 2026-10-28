@@ -1,3 +1,5 @@
+import { z } from "zod"
+import { postAck, ackDecisionSchema, escalationIdSchema } from "../../services/herdr/ack"
 import path from "node:path"
 import type { Hono } from "hono"
 import type { ServerConfig } from "../../config"
@@ -8,8 +10,17 @@ import { readWorkspaceFile, resolveWorkspaceOperationPath } from "../../services
 import { listDirectory } from "../../services/filesystem-browser"
 import { diffRange } from "../../services/git/diff"
 
-export function registerHerdrRoutes(api: Hono, config: Pick<ServerConfig, "herdrViewerPort">): void {
+export function registerHerdrRoutes(api: Hono, config: Pick<ServerConfig, "herdrViewerPort" | "herdrSocketPath">): void {
   const client = config.herdrViewerPort === undefined ? null : createEditorClient({ port: config.herdrViewerPort })
+  api.post("/herdr/:unitId/ack", async (c) => {
+    if (!client || !config.herdrSocketPath) throw new HttpError(503, "Herdr acknowledgement is not configured")
+    const parsed = z.strictObject({ escalation_id: escalationIdSchema, decision: ackDecisionSchema }).safeParse(await c.req.json().catch(() => { throw new HttpError(400, "Invalid acknowledgement JSON") }))
+    if (!parsed.success) throw new HttpError(400, "Invalid acknowledgement")
+    const unitId = c.req.param("unitId")
+    const document = await client.editor(unitId)
+    if (document.unit_id !== unitId || !document.escalations.some((entry) => entry.escalation_id === parsed.data.escalation_id)) throw new HttpError(409, "Escalation is no longer open for the selected unit. Refresh to continue.")
+    return c.json(await postAck(config.herdrSocketPath, parsed.data.escalation_id, parsed.data.decision))
+  })
   api.get("/herdr/snapshot", async (c) => {
     if (!client) throw new HttpError(503, "Herdr viewer is not configured")
     return c.json(await client.snapshot())

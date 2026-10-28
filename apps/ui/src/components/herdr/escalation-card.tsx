@@ -1,7 +1,8 @@
 import { herdrDecisions, type EditorDocument, type HerdrDecision } from "@betterc0de/schema"
 import { Button } from "@/components/ui/button"
 
-export function EscalationCard({ escalations, onDecide }: Pick<EditorDocument, "escalations"> & {
+export function EscalationCard({ escalations, onDecide, pending = false }: Pick<EditorDocument, "escalations"> & {
+  pending?: boolean
   onDecide: (escalationId: string, decision: HerdrDecision) => void
 }) {
   return <section aria-label="Escalations" className="space-y-4">
@@ -11,7 +12,7 @@ export function EscalationCard({ escalations, onDecide }: Pick<EditorDocument, "
       <h3 className="font-medium">{escalation.kind}</h3>
       <p className="whitespace-pre-wrap break-words text-sm">{escalation.detail}</p>
       <div className="flex flex-wrap gap-2">{herdrDecisions.map((decision) =>
-        <Button key={decision} variant="outline" size="sm" onClick={() => onDecide(escalation.escalation_id, decision)}>{decision}</Button>,
+        <Button key={decision} disabled={pending} variant="outline" size="sm" onClick={() => onDecide(escalation.escalation_id, decision)}>{decision}</Button>,
       )}</div>
     </article>)}
   </section>

@@ -13,6 +13,11 @@ function callbacks(node: ReactNode): (() => void)[] {
   })
 }
 describe("read-only review panels", () => {
+  it("disables every decision while pending without hiding the escalation", () => {
+    const html = renderToStaticMarkup(<EscalationCard escalations={[{ escalation_id: "1", kind: "approval", detail: "Still open" }]} pending onDecide={() => {}} />)
+    expect(html).toContain("Still open")
+    expect(html.match(/disabled=""/g)).toHaveLength(5)
+  })
   it("does not start a diff request if either revision is absent", () => {
     const request = vi.spyOn(globalThis, "fetch")
     try {

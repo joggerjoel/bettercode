@@ -1,10 +1,10 @@
 /** Validate the raw request target before Vite's proxy can normalize it. */
 export function isHerdrReadRequest(method, target) {
-  if (method !== "GET" || typeof target !== "string") return false
+  if (!["GET", "POST"].includes(method) || typeof target !== "string") return false
   const pathname = target.split("?", 1)[0]
-  if (pathname === "/api/v1/herdr/snapshot") return true
-  const match = /^\/api\/v1\/herdr\/([^/]+)\/(editor|tree|file|diff)$/.exec(pathname)
-  if (!match) return false
+  if (pathname === "/api/v1/herdr/snapshot") return method === "GET"
+  const match = /^\/api\/v1\/herdr\/([^/]+)\/(editor|tree|file|diff|ack)$/.exec(pathname)
+  if (!match || (match[2] === "ack" ? method !== "POST" : method !== "GET")) return false
   try {
     const unitId = decodeURIComponent(match[1])
     return unitId !== "." && unitId !== ".." && !/[\\/]/.test(unitId)
@@ -23,6 +23,11 @@ export function herdrSeatProxy({ port, token }) {
         if (request.url?.startsWith("/api/") && !isHerdrReadRequest(request.method, request.url)) {
           response.statusCode = 405
           response.end("Read-only review seat")
+          return
+        }
+        if (request.method === "POST" && request.headers.origin !== `http://${request.headers.host}`) {
+          response.statusCode = 403
+          response.end("Review decision requires same origin")
           return
         }
         next()

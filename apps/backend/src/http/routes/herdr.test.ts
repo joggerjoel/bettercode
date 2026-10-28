@@ -1,4 +1,5 @@
 import type { EditorDocument } from "@betterc0de/schema"
+import net from "node:net"
 import fs from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -12,7 +13,7 @@ import { HttpError } from "../../errors"
 
 const cleanups: (() => Promise<void>)[] = []
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup() })
-async function fixture() {
+async function fixture(socketPath?: string) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "herdr-routes-"))
   cleanups.push(() => fs.rm(root, { recursive: true, force: true }))
   const tree = path.join(root, "unit")
@@ -28,7 +29,7 @@ async function fixture() {
   if (!address || typeof address === "string") throw new Error("Missing viewer listener")
   const api = new Hono()
   api.onError((error) => Response.json({ error: error.message }, { status: error instanceof HttpError ? error.statusCode : 500 }))
-  registerHerdrRoutes(api, { herdrViewerPort: address.port })
+  registerHerdrRoutes(api, { herdrViewerPort: address.port, herdrSocketPath: socketPath })
   const request = (resource: string, relative = "") => api.request(`/herdr/u1/${resource}?${new URLSearchParams({ tree: document.tree, path: relative })}`)
   return { api, request, tree, document }
 }
@@ -81,3 +82,26 @@ describe("Herdr read transport", () => {
     expect(git("status", "--porcelain")).toBe(before)
   })
 })
+
+ it("acks only a freshly open escalation of the selected unit with closed input", async () => {
+   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "ack-route-"))
+   const socketPath = path.join(dir, "s")
+   const commands: unknown[] = []
+   const server = net.createServer((socket) => socket.once("data", (data) => { commands.push(JSON.parse(data.toString())); socket.end('{"ok":false,"error":{"message":"operator refused"}}\n') }))
+   await new Promise<void>((resolve) => server.listen(socketPath, resolve))
+   cleanups.push(async () => { await new Promise<void>((resolve) => server.close(() => resolve())); await fs.rm(dir, { recursive: true, force: true }) })
+   const { api, document } = await fixture(socketPath)
+   const send = (body: unknown, unit = "u1") => api.request(`/herdr/${unit}/ack`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+   const body = { escalation_id: "12", decision: "approve" }
+   expect((await send(body)).status).toBe(409)
+   document.escalations.push({ escalation_id: "12", kind: "approval", detail: "Review" })
+   expect((await send({ ...body, socketPath })).status).toBe(400)
+   expect((await send({ ...body, decision: "merge" })).status).toBe(400)
+   expect((await send(body, "other")).status).toBe(500)
+   expect(commands).toHaveLength(0)
+   expect(await (await send(body)).json()).toEqual({ ok: false, message: "operator refused" })
+   expect(commands).toHaveLength(1)
+   document.escalations = []
+   expect((await send(body)).status).toBe(409)
+   expect(commands).toHaveLength(1)
+ })

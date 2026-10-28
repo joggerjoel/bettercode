@@ -4,9 +4,9 @@ import { test } from "node:test"
 import { createServer } from "vite"
 import { herdrSeatProxy } from "./herdr-seat-proxy.mjs"
 
-function request(port, path, method = "GET") {
+function request(port, path, method = "GET", headers = {}) {
   return new Promise((resolve, reject) => {
-    const req = http.request({ host: "127.0.0.1", port, path, method }, (res) => {
+    const req = http.request({ headers, host: "127.0.0.1", port, path, method }, (res) => {
       let body = ""
       res.setEncoding("utf8")
       res.on("data", (chunk) => { body += chunk })
@@ -46,6 +46,11 @@ test("real Vite proxy authenticates only canonical Herdr reads", async () => {
       assert.deepEqual(received.at(-1), { path: target, authorization: "Bearer synthetic-review-token" })
     }
     assert.equal(received.length, 5)
+    assert.equal((await request(port, "/api/v1/herdr/u/ack", "POST", { Origin: "https://evil.example" })).status, 403)
+    assert.equal(received.length, 5)
+    assert.equal((await request(port, "/api/v1/herdr/u/ack", "POST", { Origin: `http://127.0.0.1:${port}` })).status, 200)
+    assert.equal(received.length, 6)
+    for (const target of ["/api/v1/herdr/%2e%2e/ack", "/api/v1/herdr/u/ack/extra", "/api/v1/settings"]) assert.equal((await request(port, target, "POST")).status, 405)
   } finally {
     await vite?.close()
     upstream.closeAllConnections()
