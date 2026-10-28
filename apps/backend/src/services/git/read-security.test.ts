@@ -2,14 +2,14 @@ import { execFileSync } from "node:child_process"
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { diff, diffRange } from "./diff"
+import * as gitProcess from "./process"
 import { invalidateStatusCache, status } from "./status"
 
 describe("Git read probes do not execute repository helpers", () => {
   let root: string
   let parent: string
-  let head: string
   const git = (...args: string[]) =>
     execFileSync("git", args, {
       cwd: root,
@@ -35,17 +35,6 @@ describe("Git read probes do not execute repository helpers", () => {
     )
     parent = git("rev-parse", "HEAD").toString().trim()
     fs.writeFileSync(path.join(root, "note.txt"), "changed\n")
-    git("add", "note.txt")
-    git(
-      "-c",
-      "core.hooksPath=",
-      "-c",
-      "commit.gpgSign=false",
-      "commit",
-      "-m",
-      "candidate"
-    )
-    head = git("rev-parse", "HEAD").toString().trim()
     fs.writeFileSync(
       path.join(root, ".git", "probe.sh"),
       "#!/bin/sh\nprintf probe >> .git/executed\ncat\n",
@@ -95,18 +84,47 @@ describe("Git read probes do not execute repository helpers", () => {
     }
   )
   it("diffs two commit hashes without changing repository state", async () => {
+    git("add", "note.txt")
+    git(
+      "-c",
+      "core.hooksPath=",
+      "-c",
+      "commit.gpgSign=false",
+      "commit",
+      "-m",
+      "candidate"
+    )
+    const candidate = git("rev-parse", "HEAD").toString().trim()
     const beforeStatus = git("status", "--porcelain").toString()
     const beforeHead = git("rev-parse", "HEAD").toString()
-    const result = await diffRange(root, parent, head)
+    const gitRun = vi.spyOn(gitProcess, "gitRun")
+    const result = await diffRange(root, parent, candidate)
+    const invokedCommands = gitRun.mock.calls.map(([, args]) => args)
+    gitRun.mockRestore()
     expect(result.diff).toContain("-original")
     expect(result.diff).toContain("+changed")
+    expect(invokedCommands).toHaveLength(1)
+    expect(invokedCommands.flat()).not.toEqual(
+      expect.arrayContaining(["add", "apply", "commit"])
+    )
     expect(git("status", "--porcelain").toString()).toBe(beforeStatus)
     expect(git("rev-parse", "HEAD").toString()).toBe(beforeHead)
   })
-  it.each(["HEAD", "a".repeat(41), "a".repeat(63), "A".repeat(40)])(
-    "rejects invalid revision %s",
-    async (revision) => {
-      await expect(diffRange(root, revision, head)).rejects.toMatchObject({
+  it.each([
+    ["base", "HEAD"],
+    ["base", "a".repeat(41)],
+    ["base", "a".repeat(63)],
+    ["base", "A".repeat(40)],
+    ["candidate", "HEAD"],
+    ["candidate", "a".repeat(41)],
+    ["candidate", "a".repeat(63)],
+    ["candidate", "A".repeat(40)],
+  ] as const)(
+    "rejects invalid %s revision %s",
+    async (position, revision) => {
+      const base = position === "base" ? revision : parent
+      const candidate = position === "candidate" ? revision : parent
+      await expect(diffRange(root, base, candidate)).rejects.toMatchObject({
         statusCode: 400,
         code: "git_revision_invalid",
       })
